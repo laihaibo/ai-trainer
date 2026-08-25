@@ -10,7 +10,12 @@
 import { computed } from 'vue'
 import type { ComputedRef } from 'vue'
 import { usePersistent } from './usePersistent'
-import type { MockRecord, ProgressState, WrongQuestionRecord } from '../types'
+import type {
+  MockRecord,
+  ProgressState,
+  ProgressSyncFile,
+  WrongQuestionRecord,
+} from '../types'
 
 const STORAGE_KEY = 'ai-trainer:progress'
 
@@ -49,10 +54,31 @@ export interface UseProgress {
   isChecked: (dateKey: string, taskId: string) => boolean
   /** 追加一条模拟考记录（最新在前） */
   recordMock: (record: MockRecord) => void
+  /** 生成同步文件（导出 JSON 用，包含当前进度快照） */
+  buildSyncFile: () => ProgressSyncFile
+  /**
+   * 应用同步文件（导入用）。
+   * mode='merge' 与本地数据合并（累计计数取大、错题按 id 合并、打卡并集、模考按时间戳去重）；
+   * mode='replace' 完全覆盖本地（覆盖前由调用方确认）。
+   * 返回应用后的统计摘要（供 UI 提示）。
+   */
+  applySyncFile: (file: ProgressSyncFile, mode: 'merge' | 'replace') => SyncResult
 }
 
+/** 导入后的统计摘要（UI 提示用） */
+export interface SyncResult {
+  doneCount: number
+  correctCount: number
+  wrongCount: number
+  checkinDays: number
+  mockCount: number
+}
+
+/** 模块级单例 state：全站共享同一进度 ref（页面可多次调用 useProgress 并实时同步） */
+let sharedState: ReturnType<typeof usePersistent<ProgressState>> | null = null
+
 export function useProgress(): UseProgress {
-  const state = usePersistent<ProgressState>(STORAGE_KEY, DEFAULT_STATE)
+  const state = (sharedState ??= usePersistent<ProgressState>(STORAGE_KEY, DEFAULT_STATE))
 
   function recordAnswer(id: number, correct: boolean): void {
     const s = state.value
@@ -110,6 +136,29 @@ export function useProgress(): UseProgress {
     }
   }
 
+  function buildSyncFile(): ProgressSyncFile {
+    return {
+      app: 'aitrainer',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: { ...state.value },
+    }
+  }
+
+  function applySyncFile(file: ProgressSyncFile, mode: 'merge' | 'replace'): SyncResult {
+    const incoming = sanitizeState(file.data)
+    const next = mode === 'replace' ? incoming : mergeProgress(state.value, incoming)
+    // 整体替换 state（触发 usePersistent 深监听写回 localStorage）
+    state.value = next
+    return {
+      doneCount: next.doneCount,
+      correctCount: next.correctCount,
+      wrongCount: Object.keys(next.wrongs).length,
+      checkinDays: Object.keys(next.checkins).length,
+      mockCount: next.mockRecords.length,
+    }
+  }
+
   const wrongQuestions = computed<WrongQuestionRecord[]>(() =>
     Object.values(state.value.wrongs).sort(
       (a, b) => b.wrongCount - a.wrongCount || b.lastWrongAt.localeCompare(a.lastWrongAt),
@@ -134,5 +183,137 @@ export function useProgress(): UseProgress {
     toggleCheckin,
     isChecked,
     recordMock,
+    buildSyncFile,
+    applySyncFile,
+  }
+}
+
+/* ============================================================
+   做题记录同步（导出/导入 JSON，多设备间同步进度）
+   ============================================================ */
+
+/**
+ * 校验任意未知值是否为合法同步文件（仅外壳与顶层字段；逐条数据的清洗交给 sanitizeState）。
+ * app 固定为 'aitrainer'，防止误导入其他应用的 JSON。
+ */
+export function isProgressSyncFile(raw: unknown): raw is ProgressSyncFile {
+  if (typeof raw !== 'object' || raw === null) return false
+  const r = raw as Record<string, unknown>
+  if (r.app !== 'aitrainer' || r.version !== 1 || typeof r.exportedAt !== 'string') return false
+  const d = r.data
+  if (typeof d !== 'object' || d === null) return false
+  const data = d as Record<string, unknown>
+  return (
+    typeof data.doneCount === 'number' &&
+    typeof data.correctCount === 'number' &&
+    typeof data.wrongs === 'object' &&
+    data.wrongs !== null &&
+    !Array.isArray(data.wrongs) &&
+    typeof data.checkins === 'object' &&
+    data.checkins !== null &&
+    !Array.isArray(data.checkins) &&
+    Array.isArray(data.mockRecords)
+  )
+}
+
+function isValidWrong(v: unknown): v is WrongQuestionRecord {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    typeof r.id === 'number' &&
+    typeof r.wrongCount === 'number' &&
+    typeof r.lastWrongAt === 'string'
+  )
+}
+
+function isValidMock(v: unknown): v is MockRecord {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    typeof r.date === 'string' &&
+    typeof r.count === 'number' &&
+    typeof r.correct === 'number' &&
+    typeof r.minutes === 'number' &&
+    typeof r.timestamp === 'number' &&
+    Array.isArray(r.wrongIds)
+  )
+}
+
+/**
+ * 把任意输入规整为合法 ProgressState：非法/缺失字段一律丢弃或补默认，
+ * 防止导入脏数据导致页面崩溃（如 wrongs 值不是对象、mockRecords 项缺字段）。
+ */
+function sanitizeState(input: unknown): ProgressState {
+  const d = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>
+
+  const wrongs: Record<number, WrongQuestionRecord> = {}
+  const rawWrongs =
+    typeof d.wrongs === 'object' && d.wrongs !== null && !Array.isArray(d.wrongs)
+      ? (d.wrongs as Record<string, unknown>)
+      : {}
+  for (const v of Object.values(rawWrongs)) {
+    if (isValidWrong(v)) wrongs[v.id] = { id: v.id, wrongCount: v.wrongCount, lastWrongAt: v.lastWrongAt }
+  }
+
+  const checkins: Record<string, string[]> = {}
+  const rawCheckins =
+    typeof d.checkins === 'object' && d.checkins !== null && !Array.isArray(d.checkins)
+      ? (d.checkins as Record<string, unknown>)
+      : {}
+  for (const [day, v] of Object.entries(rawCheckins)) {
+    if (Array.isArray(v)) checkins[day] = v.filter((t): t is string => typeof t === 'string')
+  }
+
+  const mockRecords = (Array.isArray(d.mockRecords) ? d.mockRecords : [])
+    .filter(isValidMock)
+    .sort((a, b) => b.timestamp - a.timestamp)
+
+  const toCount = (v: unknown): number =>
+    typeof v === 'number' && v >= 0 ? Math.floor(v) : 0
+  return {
+    doneCount: toCount(d.doneCount),
+    correctCount: toCount(d.correctCount),
+    wrongs,
+    checkins,
+    mockRecords,
+  }
+}
+
+/**
+ * 合并两个进度状态（导入的"合并"模式）：
+ * - doneCount / correctCount 取较大值（同一次刷题两边都可能计数，取保守上界）
+ * - 错题本按 id 合并：wrongCount 与 lastWrongAt 取较新/较大者
+ * - 计划打卡：taskId 列表并集
+ * - 模拟考历史：以 timestamp 去重（重复时后写入者优先），结果按最新在前排序
+ */
+export function mergeProgress(a: ProgressState, b: ProgressState): ProgressState {
+  const wrongs: Record<number, WrongQuestionRecord> = { ...a.wrongs }
+  for (const rec of Object.values(b.wrongs)) {
+    const prev = wrongs[rec.id]
+    wrongs[rec.id] = prev
+      ? {
+          id: rec.id,
+          wrongCount: prev.wrongCount > rec.wrongCount ? prev.wrongCount : rec.wrongCount,
+          lastWrongAt: prev.lastWrongAt > rec.lastWrongAt ? prev.lastWrongAt : rec.lastWrongAt,
+        }
+      : { ...rec }
+  }
+
+  const checkins: Record<string, string[]> = { ...a.checkins }
+  for (const [day, tasks] of Object.entries(b.checkins)) {
+    const merged = checkins[day] ? [...checkins[day]] : []
+    for (const t of tasks) if (!merged.includes(t)) merged.push(t)
+    checkins[day] = merged
+  }
+
+  const byTimestamp = new Map<number, MockRecord>()
+  for (const rec of [...a.mockRecords, ...b.mockRecords]) byTimestamp.set(rec.timestamp, rec)
+
+  return {
+    doneCount: a.doneCount > b.doneCount ? a.doneCount : b.doneCount,
+    correctCount: a.correctCount > b.correctCount ? a.correctCount : b.correctCount,
+    wrongs,
+    checkins,
+    mockRecords: [...byTimestamp.values()].sort((x, y) => y.timestamp - x.timestamp),
   }
 }

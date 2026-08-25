@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import { DAILY_PLANS } from '../data/plan'
 import { useProgress } from '../composables/useProgress'
+import DataSyncCard from '../components/DataSyncCard.vue'
 
 const {
   correctCount,
@@ -142,6 +143,9 @@ const overallPct = computed(() =>
         </RouterLink>
       </div>
     </section>
+
+    <!-- 数据同步 -->
+    <DataSyncCard />
   </div>
 </template>
 
@@ -283,6 +287,7 @@ const overallPct = computed(() =>
 /* 快捷入口 */
 .quick-section {
   margin-top: var(--space-6);
+  margin-bottom: var(--space-6);
 }
 
 .quick-cards {

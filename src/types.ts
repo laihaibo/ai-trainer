@@ -106,3 +106,15 @@ export interface ProgressState {
   /** 模拟考历史（最新在前） */
   mockRecords: MockRecord[]
 }
+
+/** 做题记录同步文件（导出/导入 JSON，用于多设备同步；version 供将来格式升级校验） */
+export interface ProgressSyncFile {
+  /** 固定标识，防止误导其他应用 JSON */
+  app: 'aitrainer'
+  /** 格式版本（当前：1） */
+  version: 1
+  /** 导出时间（ISO 字符串，仅元信息） */
+  exportedAt: string
+  /** 进度快照 */
+  data: ProgressState
+}

@@ -20,8 +20,8 @@
   - `handsOn.ts` — 三大实操模块（Python 编程 / 模型构建 / 数据标注）
 - 题库：`public/data/questions.json`（600 题；原文件 options 为字母键对象，`useQuiz.ts` 的 `toStandard()` 归一化为标准 `string[]`，注意契约差异）
 - `src/views/` — 页面：HomeView / StudyView / WrongBookView / MockExamView / HandsOnView / PlanView
-- `src/composables/` — `useQuiz`（抽题引擎）、`useProgress`（localStorage 进度 / 错题 / 打卡 / 模考）、`usePersistent`
-- `src/components/QuestionCard.vue` — 题目卡片组件
+- `src/composables/` — `useQuiz`（抽题引擎）、`useProgress`（localStorage 进度 / 错题 / 打卡 / 模考 + 同步文件导入导出）、`usePersistent`
+- `src/components/` — `QuestionCard.vue`（题目卡片）、`DataSyncCard.vue`（首页数据同步卡片，导出/导入 JSON）
 - `docs/` — 本地学习资料（xlsx / PPT / PDF / zip，**已 gitignore，不提交**；但内容数据源自这里，改动前先核实源文件）
 
 ## 约定与陷阱
@@ -31,4 +31,5 @@
 - **静态资源请求禁止用绝对路径**：题库通过 `fetch(QUESTIONS_URL)` 加载，`QUESTIONS_URL` 必须用 `import.meta.env.BASE_URL` 拼接（见 `useQuiz.ts`），写成 `/data/questions.json` 会在 GitHub Pages 子路径部署下 404。
 - 数据文件保持"概念：解释（【来源】）"格式，新增卡片 / 题目时禁止编造来源。
 - localStorage key 前缀 `ai-trainer:`（见 types.ts `ProgressState`），修改契约需兼容旧数据。
+- **`useProgress()` 的 state 是模块级单例**（`sharedState`）：同页多处调用共享同一 ref，导入/改动处处同步刷新。修改进度状态时**必须整体替换 `state.value`**（不可变更新），否则 usePersistent 的深监听不触发、UI 不同步。
 - 与用户沟通使用简体中文；代码风格跟随现有文件（中文注释、TS 严格类型、`<script setup>`）。
