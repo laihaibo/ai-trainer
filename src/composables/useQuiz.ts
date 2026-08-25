@@ -15,7 +15,8 @@ import { usePersistent } from './usePersistent'
 import { useProgress } from './useProgress'
 import type { MockConfig, Question } from '../types'
 
-const QUESTIONS_URL = '/data/questions.json'
+// 用 BASE_URL 拼接以兼容 GitHub Pages 子路径部署（dev 下 Vite 会剥离 base 前缀）
+const QUESTIONS_URL = `${import.meta.env.BASE_URL}data/questions.json`
 
 /** questions.json 实际行格式（options 为字母键对象，未归一化态） */
 interface RawQuestion {
