@@ -6,6 +6,9 @@
  * StudyView / WrongBookView 共用（外层负责操作按钮与速查卡片区）。
  */
 import type { Question } from '@/types'
+import { useProgress } from '@/composables/useProgress'
+
+const { isHard, toggleHard } = useProgress()
 
 const props = defineProps<{
   question: Question
@@ -37,6 +40,15 @@ function pick(index: number): void {
   <div class="question-card">
     <div class="question-head">
       <span class="question-tag">第 {{ question.id }} 题</span>
+      <button
+        type="button"
+        class="hard-toggle"
+        :class="{ active: isHard(question.id) }"
+        :title="isHard(question.id) ? '移除难题标记' : '标记为难题'"
+        @click="toggleHard(question.id)"
+      >
+        {{ isHard(question.id) ? '★ 难题' : '☆ 难题' }}
+      </button>
       <p class="question-text">{{ question.q }}</p>
     </div>
 
@@ -83,7 +95,36 @@ function pick(index: number): void {
 }
 
 .question-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+/* 难题标记按钮（题卡头部右侧） */
+.hard-toggle {
+  margin-left: auto;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.hard-toggle:hover {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+
+.hard-toggle.active {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
 }
 
 .question-tag {

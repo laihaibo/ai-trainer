@@ -8,6 +8,7 @@ import DataSyncCard from '../components/DataSyncCard.vue'
 const {
   correctCount,
   wrongCount,
+  hardCount,
   isChecked,
   toggleCheckin,
 } = useProgress()
@@ -90,7 +91,10 @@ const overallPct = computed(() =>
     <section class="card">
       <div class="sec-head">
         <h2>总体进度</h2>
-        <RouterLink to="/wrongbook" class="sec-link">错题本（{{ wrongCount }} 题）</RouterLink>
+        <div class="sec-links">
+          <RouterLink to="/wrongbook" class="sec-link">错题本（{{ wrongCount }}）</RouterLink>
+          <RouterLink to="/wrongbook" class="sec-link">难题（{{ hardCount }}）</RouterLink>
+        </div>
       </div>
 
       <div class="stats-row">
@@ -165,6 +169,11 @@ const overallPct = computed(() =>
 .sec-link {
   font-size: 0.9rem;
   white-space: nowrap;
+}
+
+.sec-links {
+  display: flex;
+  gap: var(--space-3);
 }
 
 /* 今日计划 */

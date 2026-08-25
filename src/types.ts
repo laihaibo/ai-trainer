@@ -105,6 +105,8 @@ export interface ProgressState {
   checkins: Record<string, string[]>
   /** 模拟考历史（最新在前） */
   mockRecords: MockRecord[]
+  /** 难题标记：题目 id 集合（手动标记，按标记先后排序） */
+  hardQuestions: number[]
 }
 
 /** 做题记录同步文件（导出/导入 JSON，用于多设备同步；version 供将来格式升级校验） */

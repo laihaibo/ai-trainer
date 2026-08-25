@@ -25,6 +25,7 @@ const DEFAULT_STATE: ProgressState = {
   wrongs: {},
   checkins: {},
   mockRecords: [],
+  hardQuestions: [],
 }
 
 export interface UseProgress {
@@ -54,6 +55,14 @@ export interface UseProgress {
   isChecked: (dateKey: string, taskId: string) => boolean
   /** 追加一条模拟考记录（最新在前） */
   recordMock: (record: MockRecord) => void
+  /** 难题标记列表（按标记先后） */
+  hardQuestions: ComputedRef<number[]>
+  /** 难题数量 */
+  hardCount: ComputedRef<number>
+  /** 某题是否已标记为难题 */
+  isHard: (id: number) => boolean
+  /** 切换某题的难题标记 */
+  toggleHard: (id: number) => void
   /** 生成同步文件（导出 JSON 用，包含当前进度快照） */
   buildSyncFile: () => ProgressSyncFile
   /**
@@ -79,6 +88,10 @@ let sharedState: ReturnType<typeof usePersistent<ProgressState>> | null = null
 
 export function useProgress(): UseProgress {
   const state = (sharedState ??= usePersistent<ProgressState>(STORAGE_KEY, DEFAULT_STATE))
+  // 旧版本数据迁移：localStorage 中缺失 hardQuestions 字段（同步文件/旧 key 无此字段）时补齐
+  if (!Array.isArray(state.value.hardQuestions)) {
+    state.value = { ...state.value, hardQuestions: [] }
+  }
 
   function recordAnswer(id: number, correct: boolean): void {
     const s = state.value
@@ -136,6 +149,17 @@ export function useProgress(): UseProgress {
     }
   }
 
+  function toggleHard(id: number): void {
+    const s = state.value
+    state.value = s.hardQuestions.includes(id)
+      ? { ...s, hardQuestions: s.hardQuestions.filter((q) => q !== id) }
+      : { ...s, hardQuestions: [...s.hardQuestions, id] }
+  }
+
+  function isHard(id: number): boolean {
+    return state.value.hardQuestions.includes(id)
+  }
+
   function buildSyncFile(): ProgressSyncFile {
     return {
       app: 'aitrainer',
@@ -177,6 +201,10 @@ export function useProgress(): UseProgress {
         : null,
     ),
     mockRecords: computed(() => state.value.mockRecords),
+    hardQuestions: computed(() => state.value.hardQuestions),
+    hardCount: computed(() => state.value.hardQuestions.length),
+    isHard,
+    toggleHard,
     recordAnswer,
     markLearned,
     resetWrongs,
@@ -268,6 +296,11 @@ function sanitizeState(input: unknown): ProgressState {
     .filter(isValidMock)
     .sort((a, b) => b.timestamp - a.timestamp)
 
+  // hardQuestions 为向后兼容可选字段（旧导出文件无此字段 → 空列表）
+  const hardQuestions = (Array.isArray(d.hardQuestions) ? d.hardQuestions : [])
+    .filter((n): n is number => typeof n === 'number')
+    .filter((n, i, arr) => arr.indexOf(n) === i)
+
   const toCount = (v: unknown): number =>
     typeof v === 'number' && v >= 0 ? Math.floor(v) : 0
   return {
@@ -276,6 +309,7 @@ function sanitizeState(input: unknown): ProgressState {
     wrongs,
     checkins,
     mockRecords,
+    hardQuestions,
   }
 }
 
@@ -309,11 +343,18 @@ export function mergeProgress(a: ProgressState, b: ProgressState): ProgressState
   const byTimestamp = new Map<number, MockRecord>()
   for (const rec of [...a.mockRecords, ...b.mockRecords]) byTimestamp.set(rec.timestamp, rec)
 
+  // 难题标记：并集（先 A 后 B 新增，保序去重）
+  const hardQuestions = [...a.hardQuestions]
+  for (const id of b.hardQuestions) {
+    if (!hardQuestions.includes(id)) hardQuestions.push(id)
+  }
+
   return {
     doneCount: a.doneCount > b.doneCount ? a.doneCount : b.doneCount,
     correctCount: a.correctCount > b.correctCount ? a.correctCount : b.correctCount,
     wrongs,
     checkins,
     mockRecords: [...byTimestamp.values()].sort((x, y) => y.timestamp - x.timestamp),
+    hardQuestions,
   }
 }
