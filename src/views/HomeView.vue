@@ -13,8 +13,8 @@ const {
   toggleCheckin,
 } = useProgress()
 
-/** 题库总量（数据源公开文件：public/data/questions.json，共 600 题） */
-const TOTAL_QUESTIONS = 600
+/** 题库总量（去重后：public/data/questions.json，共 546 题） */
+const TOTAL_QUESTIONS = 546
 
 function todayStr(): string {
   const d = new Date()
@@ -110,6 +110,10 @@ const overallPct = computed(() =>
           <div class="stat-num">{{ wrongCount }}</div>
           <div class="stat-label">错题数</div>
         </div>
+        <div class="stat-box">
+          <div class="stat-num">{{ hardCount }}</div>
+          <div class="stat-label">难题数</div>
+        </div>
       </div>
 
       <div class="progress-row">
@@ -143,6 +147,13 @@ const overallPct = computed(() =>
           <div>
             <h3>实操指引</h3>
             <p>三模块四段式教程，分步必练</p>
+          </div>
+        </RouterLink>
+        <RouterLink to="/insights" class="card quick-card">
+          <span class="quick-icon insights">析</span>
+          <div>
+            <h3>错题分析</h3>
+            <p>按主题归纳错题难题，查看复习资料</p>
           </div>
         </RouterLink>
       </div>
@@ -240,7 +251,7 @@ const overallPct = computed(() =>
 /* 统计卡 */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-3);
   margin-bottom: var(--space-4);
 }
@@ -301,7 +312,7 @@ const overallPct = computed(() =>
 
 .quick-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-4);
 }
 
@@ -350,6 +361,10 @@ const overallPct = computed(() =>
 
 .quick-icon.handson {
   background-color: var(--color-success);
+}
+
+.quick-icon.insights {
+  background-color: var(--color-warning);
 }
 
 @media (max-width: 640px) {
