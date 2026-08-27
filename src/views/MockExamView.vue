@@ -3,7 +3,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { usePersistent } from '../composables/usePersistent'
 import { useMockExam } from '../composables/useQuiz'
-import { TOPICS } from '../data/topics'
 import type { MockConfig, Question } from '../types'
 
 /** 结果页错题项 */
@@ -52,10 +51,6 @@ const phase = computed<Phase>(() => {
 
 const quizQuestions = computed<Question[]>(() => session.value?.questions ?? [])
 const current = computed<Question | undefined>(() => quizQuestions.value[examIndex.value])
-
-function topicName(topicId: string): string {
-  return TOPICS.find((t) => t.id === topicId)?.name ?? topicId
-}
 
 /** 选项索引 -> 字母（0→A） */
 function letterOf(index: number): string {
@@ -202,7 +197,6 @@ onMounted(() => {
         <div class="exam-top">
           <div class="exam-progress">
             第 <strong>{{ examIndex + 1 }}</strong> / {{ quizQuestions.length }} 题
-            <span class="topic-badge">{{ topicName(current.topic) }}</span>
           </div>
           <div class="timer" :class="{ urgent: remainingLabel.startsWith('00:') }">
             {{ remainingLabel }}
@@ -364,15 +358,6 @@ onMounted(() => {
   justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
-}
-
-.topic-badge {
-  margin-left: var(--space-2);
-  padding: 1px var(--space-2);
-  border-radius: var(--radius-sm);
-  background-color: var(--color-primary-soft);
-  color: var(--color-primary-dark);
-  font-size: 0.8rem;
 }
 
 .timer {

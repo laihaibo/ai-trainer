@@ -41,13 +41,13 @@ async function onFilePick(event: Event): Promise<void> {
       setMessage('文件格式不正确：请选择本应用导出的做题记录 JSON。', false)
       return
     }
-    if (mode.value === 'replace' && !window.confirm('导入将完全覆盖当前做题记录（含错题本、打卡、模拟考历史），无法撤销。确定继续？')) {
+    if (mode.value === 'replace' && !window.confirm('导入将完全覆盖当前做题记录（含错题本、难题标记、模拟考历史），无法撤销。确定继续？')) {
       return
     }
     const result = applySyncFile(raw, mode.value)
     const modeText = mode.value === 'merge' ? '合并' : '覆盖'
     setMessage(
-      `导入完成（${modeText}）：累计 ${result.doneCount} 题（答对 ${result.correctCount}）、错题 ${result.wrongCount} 条、打卡 ${result.checkinDays} 天、模拟考 ${result.mockCount} 次。`,
+      `导入完成（${modeText}）：累计 ${result.doneCount} 题（答对 ${result.correctCount}）、已做 ${result.uniqueDone} 题（去重）、错题 ${result.wrongCount} 条、模拟考 ${result.mockCount} 次。`,
       true,
     )
   } catch {
@@ -66,7 +66,7 @@ async function onFilePick(event: Event): Promise<void> {
       <span class="sec-hint">多设备 / 多账号</span>
     </div>
     <p class="sync-desc">
-      进度（答题统计、错题本、计划打卡、模拟考历史）保存在浏览器本地。导出为 JSON 文件，可在其他设备的「导入」中同步恢复。
+      进度（答题统计、已做题记录、错题本、难题标记、模拟考历史）保存在浏览器本地。导出为 JSON 文件，可在其他设备的「导入」中同步恢复。
     </p>
     <div class="sync-options">
       <label class="option-label">

@@ -5,10 +5,9 @@ const navItems = [
   { to: '/', label: '首页' },
   { to: '/study', label: '刷题' },
   { to: '/wrongbook', label: '错题本' },
-  { to: '/insights', label: '错题分析' },
+  { to: '/focus', label: '重点分析' },
   { to: '/mock', label: '模拟考' },
   { to: '/hands-on', label: '实操指引' },
-  { to: '/plan', label: '学习计划' },
 ]
 </script>
 

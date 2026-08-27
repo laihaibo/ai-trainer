@@ -8,7 +8,7 @@
 import type { Question } from '@/types'
 import { useProgress } from '@/composables/useProgress'
 
-const { isHard, toggleHard } = useProgress()
+const { isHard, toggleHard, isDone } = useProgress()
 
 const props = defineProps<{
   question: Question
@@ -40,6 +40,7 @@ function pick(index: number): void {
   <div class="question-card">
     <div class="question-head">
       <span class="question-tag">第 {{ question.id }} 题</span>
+      <span v-if="isDone(question.id)" class="done-tag" title="此题已作答过">✓ 已做过</span>
       <button
         type="button"
         class="hard-toggle"
@@ -133,6 +134,18 @@ function pick(index: number): void {
   color: var(--color-text-muted);
   background: var(--color-bg);
   border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+/* 已做过标记（题号右侧，与题号标签同尺寸） */
+.done-tag {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.8rem;
+  color: var(--color-success);
+  background: var(--color-success-soft);
   border-radius: var(--radius-sm);
   padding: 2px var(--space-2);
   margin-bottom: var(--space-2);

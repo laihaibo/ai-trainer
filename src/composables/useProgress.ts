@@ -2,7 +2,7 @@
  * 学习进度核心状态（同一页内单例调用，取值用 useProgress() 工厂）。
  *
  * 持久化：localStorage key "ai-trainer:progress"（复用 usePersistent，深监听自动写回）。
- * 覆盖：刷题统计、错题本（答错自动 upsert）、计划打卡、模拟考历史。
+ * 覆盖：刷题统计（含已做题集合）、错题本（答错自动 upsert）、模拟考历史、难题标记。
  *
  * 更新策略：对象删除/数组变化统一走「不可变更新」（新引用替换），
  * 保证 usePersistent 的 deep watch 必定触发，避免依赖 delete 语义的边界行为。
@@ -22,19 +22,25 @@ const STORAGE_KEY = 'ai-trainer:progress'
 const DEFAULT_STATE: ProgressState = {
   doneCount: 0,
   correctCount: 0,
+  doneQuestions: [],
   wrongs: {},
-  checkins: {},
   mockRecords: [],
   hardQuestions: [],
 }
 
 export interface UseProgress {
-  /** 原始状态 ref（页面按需读：如计划页读 checkins 全量） */
+  /** 原始状态 ref（页面按需读） */
   state: ReturnType<typeof usePersistent<ProgressState>>
-  /** 累计作答题数 */
+  /** 累计作答题数（含重复作答） */
   doneCount: ComputedRef<number>
   /** 累计答对题数 */
   correctCount: ComputedRef<number>
+  /** 已做过的题目 id（按首次作答先后排序，去重） */
+  doneQuestions: ComputedRef<number[]>
+  /** 已做题目的去重数量（题库覆盖率口径） */
+  uniqueDoneCount: ComputedRef<number>
+  /** 某题是否已做过 */
+  isDone: (id: number) => boolean
   /** 错题本（按 wrongCount 降序、同错次按最近错误在前） */
   wrongQuestions: ComputedRef<WrongQuestionRecord[]>
   /** 错题总条数 */
@@ -43,16 +49,12 @@ export interface UseProgress {
   accuracy: ComputedRef<number | null>
   /** 模拟考历史（最新在前） */
   mockRecords: ComputedRef<MockRecord[]>
-  /** 记录一次作答：答对计入 correctCount；答错自动 upsert 进错题本 */
+  /** 记录一次作答：答对计入 correctCount；答错自动 upsert 进错题本；题目 id 记入已做集合 */
   recordAnswer: (id: number, correct: boolean) => void
   /** 从错题本移除一题（已掌握） */
   markLearned: (id: number) => void
   /** 清空错题本 */
   resetWrongs: () => void
-  /** 切换某日某任务的打卡勾选 */
-  toggleCheckin: (dateKey: string, taskId: string) => void
-  /** 某日某任务是否已勾选 */
-  isChecked: (dateKey: string, taskId: string) => boolean
   /** 追加一条模拟考记录（最新在前） */
   recordMock: (record: MockRecord) => void
   /** 难题标记列表（按标记先后） */
@@ -67,7 +69,7 @@ export interface UseProgress {
   buildSyncFile: () => ProgressSyncFile
   /**
    * 应用同步文件（导入用）。
-   * mode='merge' 与本地数据合并（累计计数取大、错题按 id 合并、打卡并集、模考按时间戳去重）；
+   * mode='merge' 与本地数据合并（累计计数取大、错题按 id 合并、已做题/难题并集、模考按时间戳去重）；
    * mode='replace' 完全覆盖本地（覆盖前由调用方确认）。
    * 返回应用后的统计摘要（供 UI 提示）。
    */
@@ -78,8 +80,9 @@ export interface UseProgress {
 export interface SyncResult {
   doneCount: number
   correctCount: number
+  /** 已做题去重数量 */
+  uniqueDone: number
   wrongCount: number
-  checkinDays: number
   mockCount: number
 }
 
@@ -88,9 +91,13 @@ let sharedState: ReturnType<typeof usePersistent<ProgressState>> | null = null
 
 export function useProgress(): UseProgress {
   const state = (sharedState ??= usePersistent<ProgressState>(STORAGE_KEY, DEFAULT_STATE))
-  // 旧版本数据迁移：localStorage 中缺失 hardQuestions 字段（同步文件/旧 key 无此字段）时补齐
-  if (!Array.isArray(state.value.hardQuestions)) {
-    state.value = { ...state.value, hardQuestions: [] }
+  // 旧版本数据迁移：localStorage / 旧同步文件中缺失 hardQuestions、doneQuestions 字段时补齐
+  if (!Array.isArray(state.value.hardQuestions) || !Array.isArray(state.value.doneQuestions)) {
+    state.value = {
+      ...state.value,
+      hardQuestions: Array.isArray(state.value.hardQuestions) ? state.value.hardQuestions : [],
+      doneQuestions: Array.isArray(state.value.doneQuestions) ? state.value.doneQuestions : [],
+    }
   }
 
   function recordAnswer(id: number, correct: boolean): void {
@@ -103,11 +110,13 @@ export function useProgress(): UseProgress {
         lastWrongAt: new Date().toISOString(),
       }
     }
-    // doneCount / correctCount 合并到一次赋值，避免触发两次写回
+    // 已做题集合追加（去重），与其余统计合并到一次赋值，避免触发两次写回
+    const nextDone = s.doneQuestions.includes(id) ? s.doneQuestions : [...s.doneQuestions, id]
     state.value = {
       ...s,
       doneCount: s.doneCount + 1,
       correctCount: s.correctCount + (correct ? 1 : 0),
+      doneQuestions: nextDone,
     }
   }
 
@@ -124,22 +133,6 @@ export function useProgress(): UseProgress {
 
   function resetWrongs(): void {
     state.value = { ...state.value, wrongs: {} }
-  }
-
-  function toggleCheckin(dateKey: string, taskId: string): void {
-    const s = state.value
-    const list = s.checkins[dateKey] ?? []
-    const nextList = list.includes(taskId)
-      ? list.filter((t) => t !== taskId)
-      : [...list, taskId]
-    state.value = {
-      ...s,
-      checkins: { ...s.checkins, [dateKey]: nextList },
-    }
-  }
-
-  function isChecked(dateKey: string, taskId: string): boolean {
-    return (state.value.checkins[dateKey] ?? []).includes(taskId)
   }
 
   function recordMock(record: MockRecord): void {
@@ -160,6 +153,10 @@ export function useProgress(): UseProgress {
     return state.value.hardQuestions.includes(id)
   }
 
+  function isDone(id: number): boolean {
+    return state.value.doneQuestions.includes(id)
+  }
+
   function buildSyncFile(): ProgressSyncFile {
     return {
       app: 'aitrainer',
@@ -177,8 +174,8 @@ export function useProgress(): UseProgress {
     return {
       doneCount: next.doneCount,
       correctCount: next.correctCount,
+      uniqueDone: next.doneQuestions.length,
       wrongCount: Object.keys(next.wrongs).length,
-      checkinDays: Object.keys(next.checkins).length,
       mockCount: next.mockRecords.length,
     }
   }
@@ -193,6 +190,9 @@ export function useProgress(): UseProgress {
     state,
     doneCount: computed(() => state.value.doneCount),
     correctCount: computed(() => state.value.correctCount),
+    doneQuestions: computed(() => state.value.doneQuestions),
+    uniqueDoneCount: computed(() => state.value.doneQuestions.length),
+    isDone,
     wrongQuestions,
     wrongCount: computed(() => wrongQuestions.value.length),
     accuracy: computed(() =>
@@ -208,8 +208,6 @@ export function useProgress(): UseProgress {
     recordAnswer,
     markLearned,
     resetWrongs,
-    toggleCheckin,
-    isChecked,
     recordMock,
     buildSyncFile,
     applySyncFile,
@@ -237,9 +235,6 @@ export function isProgressSyncFile(raw: unknown): raw is ProgressSyncFile {
     typeof data.wrongs === 'object' &&
     data.wrongs !== null &&
     !Array.isArray(data.wrongs) &&
-    typeof data.checkins === 'object' &&
-    data.checkins !== null &&
-    !Array.isArray(data.checkins) &&
     Array.isArray(data.mockRecords)
   )
 }
@@ -283,31 +278,25 @@ function sanitizeState(input: unknown): ProgressState {
     if (isValidWrong(v)) wrongs[v.id] = { id: v.id, wrongCount: v.wrongCount, lastWrongAt: v.lastWrongAt }
   }
 
-  const checkins: Record<string, string[]> = {}
-  const rawCheckins =
-    typeof d.checkins === 'object' && d.checkins !== null && !Array.isArray(d.checkins)
-      ? (d.checkins as Record<string, unknown>)
-      : {}
-  for (const [day, v] of Object.entries(rawCheckins)) {
-    if (Array.isArray(v)) checkins[day] = v.filter((t): t is string => typeof t === 'string')
-  }
-
   const mockRecords = (Array.isArray(d.mockRecords) ? d.mockRecords : [])
     .filter(isValidMock)
     .sort((a, b) => b.timestamp - a.timestamp)
 
-  // hardQuestions 为向后兼容可选字段（旧导出文件无此字段 → 空列表）
-  const hardQuestions = (Array.isArray(d.hardQuestions) ? d.hardQuestions : [])
-    .filter((n): n is number => typeof n === 'number')
-    .filter((n, i, arr) => arr.indexOf(n) === i)
+  // hardQuestions / doneQuestions 为向后兼容可选字段（旧导出文件无此字段 → 空列表）
+  const toIdList = (v: unknown): number[] =>
+    (Array.isArray(v) ? v : [])
+      .filter((n): n is number => typeof n === 'number')
+      .filter((n, i, arr) => arr.indexOf(n) === i)
+  const hardQuestions = toIdList(d.hardQuestions)
+  const doneQuestions = toIdList(d.doneQuestions)
 
   const toCount = (v: unknown): number =>
     typeof v === 'number' && v >= 0 ? Math.floor(v) : 0
   return {
     doneCount: toCount(d.doneCount),
     correctCount: toCount(d.correctCount),
+    doneQuestions,
     wrongs,
-    checkins,
     mockRecords,
     hardQuestions,
   }
@@ -317,7 +306,7 @@ function sanitizeState(input: unknown): ProgressState {
  * 合并两个进度状态（导入的"合并"模式）：
  * - doneCount / correctCount 取较大值（同一次刷题两边都可能计数，取保守上界）
  * - 错题本按 id 合并：wrongCount 与 lastWrongAt 取较新/较大者
- * - 计划打卡：taskId 列表并集
+ * - 已做题 / 难题标记：id 并集（先 A 后 B 新增，保序去重）
  * - 模拟考历史：以 timestamp 去重（重复时后写入者优先），结果按最新在前排序
  */
 export function mergeProgress(a: ProgressState, b: ProgressState): ProgressState {
@@ -333,28 +322,22 @@ export function mergeProgress(a: ProgressState, b: ProgressState): ProgressState
       : { ...rec }
   }
 
-  const checkins: Record<string, string[]> = { ...a.checkins }
-  for (const [day, tasks] of Object.entries(b.checkins)) {
-    const merged = checkins[day] ? [...checkins[day]] : []
-    for (const t of tasks) if (!merged.includes(t)) merged.push(t)
-    checkins[day] = merged
-  }
-
   const byTimestamp = new Map<number, MockRecord>()
   for (const rec of [...a.mockRecords, ...b.mockRecords]) byTimestamp.set(rec.timestamp, rec)
 
-  // 难题标记：并集（先 A 后 B 新增，保序去重）
-  const hardQuestions = [...a.hardQuestions]
-  for (const id of b.hardQuestions) {
-    if (!hardQuestions.includes(id)) hardQuestions.push(id)
+  // id 并集工具：先 a 后 b 新增，保序去重
+  function unionIds(listA: number[], listB: number[]): number[] {
+    const merged = [...listA]
+    for (const id of listB) if (!merged.includes(id)) merged.push(id)
+    return merged
   }
 
   return {
     doneCount: a.doneCount > b.doneCount ? a.doneCount : b.doneCount,
     correctCount: a.correctCount > b.correctCount ? a.correctCount : b.correctCount,
+    doneQuestions: unionIds(a.doneQuestions, b.doneQuestions),
     wrongs,
-    checkins,
     mockRecords: [...byTimestamp.values()].sort((x, y) => y.timestamp - x.timestamp),
-    hardQuestions,
+    hardQuestions: unionIds(a.hardQuestions, b.hardQuestions),
   }
 }

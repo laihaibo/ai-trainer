@@ -50,7 +50,8 @@ const isCurrentCorrect = computed(
 const reviewDone = computed(
   () => reviewStarted.value && queue.value.length === 0,
 )
-const remaining = computed(() => queue.value.length)
+/** 剩余未走到的题数 = 队列长度 - 已推进索引（含当前题；随「下一题」递减，修复原恒等于总长的问题） */
+const remaining = computed(() => Math.max(0, queue.value.length - index.value))
 
 /** 列表：错题记录 × 题目（降序由 useProgress.wrongQuestions 保证） */
 const items = computed(() =>
@@ -67,10 +68,6 @@ const hardItems = computed(() =>
 
 function preview(text: string): string {
   return text.length > PREVIEW_LENGTH ? text.slice(0, PREVIEW_LENGTH) + '…' : text
-}
-
-function topicNameOf(topicId: string): string {
-  return TOPICS.find((t) => t.id === topicId)?.name ?? topicId
 }
 
 function wrongCountOf(questionId: number): number {
@@ -276,7 +273,6 @@ function exitReview(): void {
             <li v-for="q in hardItems" :key="q.id" class="card hard-item">
               <div class="hard-item-main">
                 <p class="hard-item-q">{{ preview(q.q) }}</p>
-                <span class="hard-item-topic">{{ topicNameOf(q.topic) }}</span>
               </div>
               <div class="hard-item-actions">
                 <button class="btn btn-secondary" type="button" @click="startHardReviewOne(q)">
@@ -553,17 +549,9 @@ function exitReview(): void {
 }
 
 .hard-item-q {
-  margin: 0 0 var(--space-1);
+  margin: 0;
   font-size: 0.95rem;
   line-height: 1.5;
-}
-
-.hard-item-topic {
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  background: var(--color-bg);
-  border-radius: var(--radius-sm);
-  padding: 2px var(--space-2);
 }
 
 .hard-item-actions {

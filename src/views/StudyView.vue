@@ -1,34 +1,45 @@
 <script setup lang="ts">
 /**
- * 刷题页：主题网格 → 题目流（点选即提交：正确高亮/错选标红 + 解析 + 该主题速查卡片）。
+ * 刷题页：扁平刷题流（不做分类）→ 点选即提交（正确高亮/错选标红 + 解析 + 关联速查卡片）。
  *
- * - 题库经 useQuiz.loadQuestions() 按主题统计题量；未完成队列不持久化（简单实现），
- *   退出即返回主题网格；答对/答错即时写入 useProgress（答错自动进错题本）。
+ * - 题库经 useQuiz.loadQuestions() 全量加载（id 升序）；支持「只刷未做题」「乱序」与随机抽题；
+ *   已做过的题持久化于 useProgress.doneQuestions（每题卡片上有「✓ 已做过」标记）。
+ * - 未完成队列不持久化（简单实现），退出即返回入口页；答对/答错即时写入 useProgress。
  */
 import { computed, onMounted, ref } from 'vue'
 import { TOPICS } from '@/data/topics'
 import type { Question, Topic } from '@/types'
-import { fromTopic, isCorrect, loadQuestions, randomQuestions } from '@/composables/useQuiz'
+import { isCorrect, loadQuestions, randomQuestions, shuffleQuestions } from '@/composables/useQuiz'
 import { useProgress } from '@/composables/useProgress'
 import QuestionCard from '@/components/QuestionCard.vue'
 
 const RANDOM_COUNT = 20
 
 const progress = useProgress()
-const topics = TOPICS
 
 const bankLoading = ref(true)
 const bankError = ref(false)
-const topicCounts = ref<Record<string, number>>({})
+/** 全量题库（id 升序） */
+const bank = ref<Question[]>([])
 
 const mode = ref<'grid' | 'quiz'>('grid')
 const shuffleMode = ref(false)
+/** 只刷没做过的题 */
+const onlyUndone = ref(false)
 const quizTitle = ref('')
 const quizError = ref(false)
 const queue = ref<Question[]>([])
 const index = ref(0)
 const selected = ref<number | null>(null)
 const sessionCorrect = ref(0)
+
+const totalQuestions = computed(() => bank.value.length)
+/** 没做过的题数 */
+const undoneCount = computed(
+  () => bank.value.filter((q) => !progress.state.value.doneQuestions.includes(q.id)).length,
+)
+/** 只刷未做题时是否已无可刷 */
+const noUndoneLeft = computed(() => onlyUndone.value && undoneCount.value === 0)
 
 const currentQuestion = computed<Question | null>(
   () => queue.value[index.value] ?? null,
@@ -38,7 +49,7 @@ const activeQuestion = computed<Question>(() => queue.value[index.value] as Ques
 const revealed = computed(() => selected.value !== null)
 const finished = computed(() => queue.value.length > 0 && index.value >= queue.value.length)
 const currentTopic = computed<Topic | null>(
-  () => topics.find((t) => t.id === currentQuestion.value?.topic) ?? null,
+  () => TOPICS.find((t) => t.id === currentQuestion.value?.topic) ?? null,
 )
 const progressPercent = computed(() =>
   queue.value.length > 0 ? Math.round((index.value / queue.value.length) * 100) : 0,
@@ -52,9 +63,7 @@ async function loadBank(): Promise<void> {
   bankError.value = false
   try {
     const all = await loadQuestions()
-    const counts: Record<string, number> = {}
-    for (const q of all) counts[q.topic] = (counts[q.topic] ?? 0) + 1
-    topicCounts.value = counts
+    bank.value = [...all].sort((a, b) => a.id - b.id)
   } catch {
     bankError.value = true
   } finally {
@@ -64,37 +73,42 @@ async function loadBank(): Promise<void> {
 
 onMounted(loadBank)
 
-function startTopic(topic: Topic): void {
-  quizTitle.value = topic.name
-  quizError.value = false
-  mode.value = 'quiz'
-  queue.value = []
-  quizError.value = false
-  fromTopic(topic.id, { shuffle: shuffleMode.value })
-    .then((qs) => beginQuiz(qs))
-    .catch(() => {
-      quizError.value = true
-      mode.value = 'grid'
-    })
+function buildTitle(base: string): string {
+  const tags: string[] = []
+  if (onlyUndone.value) tags.push('只刷未做')
+  if (shuffleMode.value) tags.push('乱序')
+  return tags.length > 0 ? `${base}（${tags.join(' · ')}）` : base
+}
+
+/** 连续刷题：按 id 顺序（或乱序）遍历目标池（全部 / 仅未做） */
+function startContinuous(): void {
+  if (noUndoneLeft.value || totalQuestions.value === 0) return
+  const pool = onlyUndone.value
+    ? bank.value.filter((q) => !progress.state.value.doneQuestions.includes(q.id))
+    : bank.value
+  beginQuiz(buildTitle('连续刷题'), shuffleMode.value ? shuffleQuestions(pool) : pool)
 }
 
 function startRandom(): void {
-  quizTitle.value = `随机 ${RANDOM_COUNT} 题`
   quizError.value = false
   mode.value = 'quiz'
+  queue.value = []
   randomQuestions(RANDOM_COUNT)
-    .then((qs) => beginQuiz(qs))
+    .then((qs) => beginQuiz(`随机 ${RANDOM_COUNT} 题`, qs))
     .catch(() => {
       quizError.value = true
       mode.value = 'grid'
     })
 }
 
-function beginQuiz(qs: Question[]): void {
+function beginQuiz(title: string, qs: Question[]): void {
+  quizTitle.value = title
+  quizError.value = false
   queue.value = qs
   index.value = 0
   selected.value = null
   sessionCorrect.value = 0
+  mode.value = 'quiz'
 }
 
 /** 点选提交（仅一次）：写入进度统计，答错自动进错题本 */
@@ -126,12 +140,13 @@ function exitQuiz(): void {
 
 <template>
   <div>
-    <!-- ================= 主题网格 ================= -->
+    <!-- ================= 入口（无分类） ================= -->
     <template v-if="mode === 'grid'">
       <div class="page-head">
         <h1>刷题</h1>
         <p class="page-sub">
-          已作答 {{ progress.doneCount.value }} 题，正确率
+          已做过 {{ progress.uniqueDoneCount.value }}/{{ totalQuestions }} 题，累计作答
+          {{ progress.doneCount.value }} 次，正确率
           {{ progress.accuracy.value === null ? '--' : Math.round(progress.accuracy.value * 100) + '%' }}
         </p>
       </div>
@@ -143,27 +158,36 @@ function exitQuiz(): void {
         <p>题库加载失败，请刷新页面重试</p>
       </div>
       <template v-else>
-        <div class="grid-controls">
-          <label class="switch-label">
-            <input v-model="shuffleMode" type="checkbox" />
-            <span>乱序刷题</span>
-          </label>
-          <button class="btn" type="button" @click="startRandom">随机 {{ RANDOM_COUNT }} 题</button>
-        </div>
-
-        <div class="topic-grid">
-          <button
-            v-for="topic in topics"
-            :key="topic.id"
-            type="button"
-            class="topic-card"
-            :style="{ borderLeftColor: topic.color }"
-            @click="startTopic(topic)"
-          >
-            <span class="topic-dot" :style="{ backgroundColor: topic.color }" />
-            <span class="topic-name">{{ topic.name }}</span>
-            <span class="topic-count">{{ topicCounts[topic.id] ?? 0 }} 题</span>
-          </button>
+        <div class="card study-controls">
+          <p class="controls-title">选择刷题方式</p>
+          <div class="control-row">
+            <label class="switch-label">
+              <input v-model="onlyUndone" type="checkbox" />
+              <span>只刷没做过的题</span>
+              <span class="count-pill">剩 {{ undoneCount }} 题</span>
+            </label>
+            <label class="switch-label">
+              <input v-model="shuffleMode" type="checkbox" />
+              <span>乱序刷题</span>
+            </label>
+          </div>
+          <p v-if="noUndoneLeft" class="all-done-tip">
+            太棒了，全部 {{ totalQuestions }} 题都做完啦！可关闭「只刷没做过的题」进行二刷，
+            或去<RouterLink to="/wrongbook">错题本</RouterLink> / <RouterLink to="/focus">重点分析</RouterLink>攻克薄弱题。
+          </p>
+          <div class="actions-row">
+            <button
+              class="btn btn-primary"
+              type="button"
+              :disabled="noUndoneLeft"
+              @click="startContinuous"
+            >
+              开始刷题（{{ onlyUndone ? undoneCount : totalQuestions }} 题）
+            </button>
+            <button class="btn btn-secondary" type="button" @click="startRandom">
+              随机 {{ RANDOM_COUNT }} 题
+            </button>
+          </div>
         </div>
       </template>
     </template>
@@ -171,7 +195,7 @@ function exitQuiz(): void {
     <!-- ================= 题目流 ================= -->
     <template v-else>
       <div class="quiz-head">
-        <button class="btn btn-secondary" type="button" @click="exitQuiz">← 返回主题</button>
+        <button class="btn btn-secondary" type="button" @click="exitQuiz">← 返回</button>
         <h2 class="quiz-title">{{ quizTitle }}</h2>
       </div>
 
@@ -187,14 +211,14 @@ function exitQuiz(): void {
           <template v-else>答错的题已全部记入错题本，加油！</template>
         </p>
         <div class="result-actions">
-          <button class="btn btn-secondary" type="button" @click="exitQuiz">返回主题</button>
+          <button class="btn btn-secondary" type="button" @click="exitQuiz">返回入口</button>
         </div>
       </div>
 
       <!-- 答题态 -->
       <template v-else>
         <div v-if="queue.length === 0" class="card">
-          <p>该主题暂无题目，请返回选择其他主题。</p>
+          <p>本轮没有可刷的题目，请返回重新选择。</p>
         </div>
         <template v-else>
           <div class="progress-track" aria-hidden="true">
@@ -217,7 +241,7 @@ function exitQuiz(): void {
             </template>
           </QuestionCard>
 
-          <!-- 该主题速查卡片（答后折叠展示） -->
+          <!-- 关联速查卡片（答后折叠展示） -->
           <details v-if="revealed && currentTopic" class="card topic-cards">
             <summary class="topic-cards-summary">
               {{ currentTopic.name }} · 速查卡片 {{ currentTopic.cards.length }} 条
@@ -249,12 +273,21 @@ function exitQuiz(): void {
   color: var(--color-text-muted);
 }
 
-.grid-controls {
+/* 入口控制卡 */
+.study-controls {
+  max-width: 560px;
+}
+
+.controls-title {
+  margin: 0 0 var(--space-3);
+  font-weight: 600;
+}
+
+.control-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .switch-label {
@@ -262,64 +295,40 @@ function exitQuiz(): void {
   align-items: center;
   gap: var(--space-2);
   cursor: pointer;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
-}
-
-.topic-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--space-3);
-}
-
-.topic-card {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  text-align: left;
-  padding: var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-left-width: 4px;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-card);
-  color: var(--color-text);
   font-size: 0.95rem;
-  transition:
-    box-shadow 0.15s ease,
-    transform 0.1s ease;
 }
 
-.topic-card:hover {
-  box-shadow: var(--shadow-card-hover);
+.switch-label input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
 }
 
-.topic-card:active {
-  transform: scale(0.99);
-}
-
-.topic-dot {
-  flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.topic-name {
-  flex: 1;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.topic-count {
-  flex: 0 0 auto;
+.count-pill {
   font-size: 0.8rem;
   color: var(--color-text-muted);
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: 2px var(--space-2);
-  white-space: nowrap;
+  padding: 1px var(--space-2);
+}
+
+.all-done-tip {
+  margin: 0 0 var(--space-3);
+  font-size: 0.9rem;
+  color: var(--color-success);
+}
+
+.actions-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .quiz-head {
@@ -407,11 +416,5 @@ function exitQuiz(): void {
   height: 8px;
   border-radius: 50%;
   margin-top: 8px;
-}
-
-@media (max-width: 640px) {
-  .topic-grid {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

@@ -29,20 +29,6 @@ export interface Topic {
   cards: string[]
 }
 
-/** 每日学习计划（来源：src/data/plan.ts） */
-export interface DailyPlan {
-  /** 第几天（1-6；30 日考试日另记） */
-  day: number
-  /** 日期，格式 "2026-08-24" 之类的 YYYY-MM-DD */
-  date: string
-  /** 当日标题 */
-  title: string
-  /** 当天聚焦主题 id 列表 */
-  focusTopics: string[]
-  /** 学习任务（可勾选打卡） */
-  tasks: { id: string; label: string }[]
-}
-
 /** 实操指引模块（来源：src/data/handsOn.ts） */
 export interface HandsOnModule {
   id: string
@@ -57,6 +43,10 @@ export interface HandsOnModule {
   code: string
   /** 考点与易错点 */
   pitfalls: string[]
+  /** 回归分析专题（仅涉回归模块提供，title + 要点列表） */
+  regression?: { title: string; points: string[] }[]
+  /** 如何生成高分答案（阅卷得分动作清单，可选） */
+  highScoreGuide?: string[]
 }
 
 /** 模拟考配置 */
@@ -95,14 +85,14 @@ export interface MockRecord {
 
 /** 学习进度总状态（localStorage key：ai-trainer:progress） */
 export interface ProgressState {
-  /** 累计作答总题数 */
+  /** 累计作答总题数（含同一题重复作答） */
   doneCount: number
   /** 累计答对题数 */
   correctCount: number
+  /** 已做过的题目 id 集合（去重，按首次作答先后排序） */
+  doneQuestions: number[]
   /** 错题本：题目 id -> 记录（id 去重，upsert 自增） */
   wrongs: Record<number, WrongQuestionRecord>
-  /** 计划打卡：dateKey（"YYYY-MM-DD"）-> 已勾选 task id 列表 */
-  checkins: Record<string, string[]>
   /** 模拟考历史（最新在前） */
   mockRecords: MockRecord[]
   /** 难题标记：题目 id 集合（手动标记，按标记先后排序） */

@@ -75,14 +75,9 @@ function shuffleArr<T>(arr: T[]): T[] {
   return a
 }
 
-/** 按主题取题（默认原序；shuffle: true 乱序） */
-export async function fromTopic(
-  topicId: string,
-  options: { shuffle?: boolean } = {},
-): Promise<Question[]> {
-  const all = await loadQuestions()
-  const list = all.filter((q) => q.topic === topicId)
-  return options.shuffle ? shuffleArr(list) : list
+/** 题目列表乱序（不改动原数组） */
+export function shuffleQuestions(arr: Question[]): Question[] {
+  return shuffleArr(arr)
 }
 
 /** 全题库随机抽 n 题（不足 n 则返回全部） */
