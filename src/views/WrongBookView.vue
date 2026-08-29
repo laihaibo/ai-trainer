@@ -5,7 +5,7 @@
  * 数据：useProgress.wrongQuestions（持久化、答错自动 upsert）；题目详情用 useQuiz 题库 join。
  * 移除即 progress.markLearned(id)，列表/重练队列即时刷新（wrongQuestions 为 computed 派生）。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { TOPICS } from '@/data/topics'
 import type { Question, Topic } from '@/types'
@@ -74,6 +74,83 @@ function wrongCountOf(questionId: number): number {
   const rec = progress.wrongQuestions.value.find((r) => r.id === questionId)
   return rec?.wrongCount ?? 0
 }
+
+/* ============================================================
+   复制求助：一键复制题目完整信息（题干+选项+正确答案+解析），
+   发给同学/老师求助。注：用户当初的错选项未持久化（types.ts
+   WrongQuestionRecord 只存 wrongCount/lastWrongAt），暂无法还原。
+   ============================================================ */
+
+const COPY_TIP_DURATION = 2000
+
+const copyTip = ref('')
+let copyTipTimer: number | undefined
+
+function showCopyTip(msg: string): void {
+  copyTip.value = msg
+  if (copyTipTimer !== undefined) window.clearTimeout(copyTipTimer)
+  copyTipTimer = window.setTimeout(() => {
+    copyTip.value = ''
+  }, COPY_TIP_DURATION)
+}
+
+/** 拼接待复制的求助文本：题干 + 选项 + 正确答案 + 解析（+ 累计错误次数） */
+function buildCopyText(q: Question, wrongCount: number): string {
+  const options = q.options
+    .map((opt, i) => `${String.fromCharCode(65 + i)}. ${opt}`)
+    .join('\n')
+  const lines = [
+    `【第 ${q.id} 题】求助`,
+    q.q,
+    options,
+    `正确答案：${q.answer}`,
+    `解析：${q.explanation}`,
+  ]
+  if (wrongCount > 0) lines.push(`（我累计答错 ${wrongCount} 次）`)
+  return lines.join('\n')
+}
+
+/** 降级复制：textarea + execCommand（兼容旧浏览器与非安全上下文） */
+function legacyCopy(text: string): void {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(ta)
+  if (!ok) throw new Error('copy failed')
+}
+
+/** 复制一题到剪贴板（优先 Clipboard API，失败自动降级） */
+async function copyForHelp(q: Question, wrongCount: number): Promise<void> {
+  const text = buildCopyText(q, wrongCount)
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      legacyCopy(text)
+    }
+    showCopyTip('已复制题目，去问同学吧 ✓')
+  } catch {
+    try {
+      legacyCopy(text)
+      showCopyTip('已复制题目，去问同学吧 ✓')
+    } catch {
+      showCopyTip('复制失败，请长按题目手动复制')
+    }
+  }
+}
+
+/** 错题列表条目复制入口（item.q 可能为题库已移除的 null，做防护） */
+function copyWrongItem(item: { q: Question | null; rec: { wrongCount: number } }): void {
+  if (item.q) void copyForHelp(item.q, item.rec.wrongCount)
+}
+
+onUnmounted(() => {
+  if (copyTipTimer !== undefined) window.clearTimeout(copyTipTimer)
+})
 
 async function loadBank(): Promise<void> {
   bankLoading.value = true
@@ -245,14 +322,22 @@ function exitReview(): void {
                 </p>
                 <span class="wrong-item-count">错 {{ item.rec.wrongCount }} 次</span>
               </div>
-              <button
-                v-if="item.q"
-                class="btn btn-secondary"
-                type="button"
-                @click="startReviewOne(item)"
-              >
-                去重练
-              </button>
+              <div v-if="item.q" class="item-actions">
+                <button
+                  class="btn btn-secondary"
+                  type="button"
+                  @click="copyWrongItem(item)"
+                >
+                  复制求助
+                </button>
+                <button
+                  class="btn btn-secondary"
+                  type="button"
+                  @click="startReviewOne(item)"
+                >
+                  去重练
+                </button>
+              </div>
             </li>
           </ul>
         </template>
@@ -275,6 +360,13 @@ function exitReview(): void {
                 <p class="hard-item-q">{{ preview(q.q) }}</p>
               </div>
               <div class="hard-item-actions">
+                <button
+                  class="btn btn-secondary"
+                  type="button"
+                  @click="copyForHelp(q, wrongCountOf(q.id))"
+                >
+                  复制求助
+                </button>
                 <button class="btn btn-secondary" type="button" @click="startHardReviewOne(q)">
                   去重练
                 </button>
@@ -356,6 +448,9 @@ function exitReview(): void {
         </template>
       </template>
     </template>
+
+    <!-- 复制结果轻提示（底部浮动，2 秒自动消失） -->
+    <div v-if="copyTip" class="copy-toast" role="status">{{ copyTip }}</div>
   </div>
 </template>
 
@@ -569,6 +664,28 @@ function exitReview(): void {
   margin-bottom: var(--space-4);
 }
 
+/* 列表条目操作区（复制求助 + 去重练） */
+.item-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* 复制结果轻提示 */
+.copy-toast {
+  position: fixed;
+  bottom: calc(var(--space-6) + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-text);
+  color: var(--color-surface);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  z-index: 100;
+  box-shadow: var(--shadow-card);
+}
+
 @media (max-width: 640px) {
   .wrong-item,
   .hard-item {
@@ -581,7 +698,8 @@ function exitReview(): void {
     align-items: stretch;
   }
 
-  .hard-item-actions {
+  .hard-item-actions,
+  .item-actions {
     justify-content: flex-end;
   }
 }
