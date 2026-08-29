@@ -59,6 +59,8 @@ export interface PracticeShot {
   caption: string
   /** 逐条对照 + 指标讲解（题目要求做了什么 → 截图中是否体现 → 关键指标怎么读 → 扣分点） */
   analysis: string[]
+  /** 参考答案（按小问要求、以答题口吻写就的完整描述，数值均取自本截图实际输出） */
+  answer: string
 }
 
 /** 模型构建实操：一道回归题（线性/逻辑/泊松） */

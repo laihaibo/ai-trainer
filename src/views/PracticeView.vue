@@ -19,6 +19,17 @@ function shotUrl(src: string): string {
   return `${import.meta.env.BASE_URL}images/practice/${src}`
 }
 
+/* ---------- 模型构建：参考答案揭示（key = `${task.id}:${shot.src}`） ---------- */
+const revealedAns = ref(new Set<string>())
+
+function toggleAnswer(taskId: string, shotSrc: string) {
+  const next = new Set(revealedAns.value)
+  const key = `${taskId}:${shotSrc}`
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  revealedAns.value = next
+}
+
 /* ---------- 图片点击放大（原生 dialog 轻量实现，不引第三方库） ---------- */
 const lightbox = ref<HTMLDialogElement | null>(null)
 const activeShot = ref<PracticeShot | null>(null)
@@ -129,6 +140,17 @@ function switchPy(id: string) {
           <ul class="analysis-list">
             <li v-for="(line, li) in shot.analysis" :key="li">{{ line }}</li>
           </ul>
+          <button
+            class="answer-toggle"
+            type="button"
+            :aria-expanded="revealedAns.has(`${task.id}:${shot.src}`)"
+            @click="toggleAnswer(task.id, shot.src)"
+          >
+            {{ revealedAns.has(`${task.id}:${shot.src}`) ? '隐藏参考答案' : '显示参考答案' }}
+          </button>
+          <p v-if="revealedAns.has(`${task.id}:${shot.src}`)" class="answer-text">
+            {{ shot.answer }}
+          </p>
         </section>
 
         <section class="block">
@@ -441,6 +463,32 @@ function switchPy(id: string) {
   padding: var(--space-3) var(--space-4);
   background-color: var(--color-bg);
   border-left: 3px solid var(--color-success);
+  border-radius: var(--radius-sm);
+  font-size: 0.93rem;
+  line-height: 1.7;
+}
+
+/* 参考答案揭示 */
+.answer-toggle {
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-primary);
+  color: #fff;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.answer-toggle:hover {
+  filter: brightness(1.08);
+}
+
+.answer-text {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-bg);
+  border-left: 3px solid var(--color-primary);
   border-radius: var(--radius-sm);
   font-size: 0.93rem;
   line-height: 1.7;
