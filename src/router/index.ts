@@ -28,6 +28,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/HandsOnView.vue'),
   },
   {
+    path: '/practice',
+    name: 'practice',
+    component: () => import('@/views/PracticeView.vue'),
+  },
+  {
     path: '/focus',
     name: 'focus',
     component: () => import('@/views/FocusAnalysisView.vue'),

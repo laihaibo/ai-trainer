@@ -100,6 +100,13 @@ const overallPct = computed(() =>
             <p>高频难点与高频错题，深度学习</p>
           </div>
         </RouterLink>
+        <RouterLink to="/practice" class="card quick-card">
+          <span class="quick-icon practice">操</span>
+          <div>
+            <h3>实操练习</h3>
+            <p>三模块真题、完成截图与对照分析</p>
+          </div>
+        </RouterLink>
       </div>
     </section>
 
@@ -201,7 +208,7 @@ const overallPct = computed(() =>
 
 .quick-cards {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--space-4);
 }
 
@@ -254,6 +261,12 @@ const overallPct = computed(() =>
 
 .quick-icon.insights {
   background-color: var(--color-warning);
+}
+
+/* 反相浅底深字，避免与「刷题」卡的实心蓝混淆 */
+.quick-icon.practice {
+  background-color: var(--color-primary-soft);
+  color: var(--color-primary-dark);
 }
 
 @media (max-width: 640px) {

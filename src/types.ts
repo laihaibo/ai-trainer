@@ -49,6 +49,87 @@ export interface HandsOnModule {
   highScoreGuide?: string[]
 }
 
+/* ==================== 实操练习栏目（/practice）数据契约 ==================== */
+
+/** 模型构建实操：一张完成截图及其逐条对照分析 */
+export interface PracticeShot {
+  /** 图片文件名（位于 public/images/practice/ 下，经 BASE_URL 拼接引用） */
+  src: string
+  /** 截图标题（展示的是什么操作/结果） */
+  caption: string
+  /** 逐条对照 + 指标讲解（题目要求做了什么 → 截图中是否体现 → 关键指标怎么读 → 扣分点） */
+  analysis: string[]
+}
+
+/** 模型构建实操：一道回归题（线性/逻辑/泊松） */
+export interface PracticeRegressionTask {
+  id: string
+  /** 回归类型（如「线性回归」） */
+  kind: string
+  /** 数据集与工具（如「JASP · test1.csv」） */
+  dataset: string
+  /** 原题出处（docs 本地路径，仅供溯源，不随站点部署） */
+  source: string
+  /** 题目要求（按①②小问拆条） */
+  requirements: string[]
+  /** 完成截图与逐条对照分析 */
+  shots: PracticeShot[]
+  /** 总体研判（一句话结论） */
+  verdict: string
+}
+
+/** 数据标注实操：data.yaml 教程页 */
+export interface PracticeYamlGuide {
+  title: string
+  /** 原题出处（docs 本地路径） */
+  source: string
+  /** 创建与规则步骤 */
+  steps: string[]
+  /** data.yaml 标准示例（fenced code 或纯文本） */
+  sample: string
+  /** 逐字段讲解 */
+  fields: { name: string; note: string }[]
+  /** 注意事项（易扣分点） */
+  cautions: string[]
+}
+
+/** Python 编程实操：一个填空空位 */
+export interface PracticePythonBlank {
+  /** 空位编号（如「1.1」） */
+  no: string
+  /** 原卷中的题目行（含下划线，原样展示） */
+  line: string
+  /** 揭示的参考答案 */
+  answer: string
+  /** 一句讲解（为什么这么填） */
+  note: string
+}
+
+/** Python 编程实操：一套填空真题 */
+export interface PracticePythonTask {
+  id: string
+  /** 套题名（如「test1 · 财政数据集」） */
+  name: string
+  /** 题意场景 */
+  scenario: string
+  /** 原题出处（docs 本地路径） */
+  source: string
+  /** 题目要求的逐条解读（去 # 行号、补哪几处空） */
+  steps: { title: string; detail: string }[]
+  /** 原卷代码（空位原样保留） */
+  lines: string[]
+  /** 各空位参考答案（点击揭示） */
+  blanks: PracticePythonBlank[]
+  /** 补全后的完整参考代码 */
+  fullAnswer: string
+}
+
+/** 实操练习：高频考点/难点卡片 */
+export interface PracticeExamCard {
+  title: string
+  points: string[]
+}
+
 /** 模拟考配置 */
 export interface MockConfig {
   /** 题量（默认 100） */

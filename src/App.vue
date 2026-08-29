@@ -8,6 +8,7 @@ const navItems = [
   { to: '/focus', label: '重点分析' },
   { to: '/mock', label: '模拟考' },
   { to: '/hands-on', label: '实操指引' },
+  { to: '/practice', label: '实操练习' },
 ]
 </script>
 
